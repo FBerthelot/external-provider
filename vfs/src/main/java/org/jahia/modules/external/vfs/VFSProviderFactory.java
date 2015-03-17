@@ -77,6 +77,7 @@ import org.jahia.services.content.*;
 import org.jahia.modules.external.ExternalContentStoreProvider;
 
 import javax.jcr.RepositoryException;
+import java.util.Arrays;
 
 /**
  * Mount external VFS Data store
@@ -108,6 +109,8 @@ public class VFSProviderFactory implements ProviderFactory {
         VFSDataSource dataSource = new VFSDataSource();
         dataSource.setRoot(mountPoint.getProperty("j:rootPath").getString());
         provider.setDataSource(dataSource);
+        provider.setExtendableTypes(Arrays.asList("jnt:myFile", "jnt:folder"));
+        provider.setOverridableItems(Arrays.asList("jnt:myFile.myProp"));
         provider.setDynamicallyMounted(true);
         provider.setSessionFactory(JCRSessionFactory.getInstance());
         try {
