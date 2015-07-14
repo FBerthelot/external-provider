@@ -298,7 +298,11 @@ public class ModulesDataSource extends VFSDataSource implements ExternalDataSour
                             logger.error(e.getMessage(), e);
                         }
                     } else if (type.equals(JNT_DEFINITION_FILE)) {
-                        registerCndFiles(file);
+                        try {
+                            registerCndFiles(file);
+                        } catch (IOException | ParseException | RepositoryException e) {
+                            logger.error(e.getMessage(), e);
+                        }
                     } else if (type.equals("jnt:viewFile")) {
                         ModulesSourceHttpServiceTracker httpServiceTracker = modulesSourceSpringInitializer.getHttpServiceTracker(module.getId());
                         if (result.getCreated().contains(file)) {
@@ -340,35 +344,35 @@ public class ModulesDataSource extends VFSDataSource implements ExternalDataSour
         fileMonitorJobName = "ModuleSourcesJob-" + module.getId();
         FileMonitorJob.schedule(fileMonitorJobName, 5000, monitor);
         for (String cndFilePath : module.getDefinitionsFiles()) {
-            registerCndFiles(new File(fullFolderPath + "src" + File.separator + "main" + File.separator + "resources" + File.separator + cndFilePath));
+            try {
+                registerCndFiles(new File(fullFolderPath + "src" + File.separator + "main" + File.separator + "resources" + File.separator + cndFilePath));
+            } catch (IOException | ParseException | RepositoryException e) {
+                logger.error(e.getMessage(), e);
+            }
         }
     }
 
-    private void registerCndFiles(File file) {
-        try {
-            String cndPath = StringUtils.substringAfter(file.getPath(), File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator);
-            // transform \ to / for windows filesystem compatibility
-            cndPath = StringUtils.replace(cndPath, File.separator, "/");
+    private void registerCndFiles(File file) throws IOException, ParseException, RepositoryException {
+        String cndPath = StringUtils.substringAfter(file.getPath(), File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator);
+        // transform \ to / for windows filesystem compatibility
+        cndPath = StringUtils.replace(cndPath, File.separator, "/");
 
-            List<String> definitionsFiles = module.getDefinitionsFiles();
-            if (file.exists() && !definitionsFiles.contains(cndPath)) {
-                definitionsFiles.add(cndPath);
-            } else if (!file.exists() && definitionsFiles.contains(cndPath)) {
-                definitionsFiles.remove(cndPath);
-            }
-            String systemId = module.getId();
-            NodeTypeRegistry nodeTypeRegistry = NodeTypeRegistry.getInstance();
-            nodeTypeRegistry.unregisterNodeTypes(systemId);
-            Properties deploymentProperties = nodeTypeRegistry.getDeploymentProperties();
-            for (String path : definitionsFiles) {
-                nodeTypeRegistry.addDefinitionsFile(getRealFile(SRC_MAIN_RESOURCES + path), systemId, module.getVersion());
-                deploymentProperties.put(module.getResource(path).getURI().toString() + ".lastRegistered.default", "0");
-            }
-            if (SettingsBean.getInstance().isProcessingServer()) {
-                jcrStoreService.deployDefinitions(systemId);
-            }
-        } catch (IOException | ParseException e) {
-            logger.error("Error registering node type definition file " + file + " for bundle " + module.getBundle(), e);
+        List<String> definitionsFiles = module.getDefinitionsFiles();
+        if (file.exists() && !definitionsFiles.contains(cndPath)) {
+            definitionsFiles.add(cndPath);
+        } else if (!file.exists() && definitionsFiles.contains(cndPath)) {
+            definitionsFiles.remove(cndPath);
+        }
+        String systemId = module.getId();
+        NodeTypeRegistry nodeTypeRegistry = NodeTypeRegistry.getInstance();
+        nodeTypeRegistry.unregisterNodeTypes(systemId);
+        Properties deploymentProperties = nodeTypeRegistry.getDeploymentProperties();
+        for (String path : definitionsFiles) {
+            nodeTypeRegistry.addDefinitionsFile(getRealFile(SRC_MAIN_RESOURCES + path), systemId, module.getVersion());
+            deploymentProperties.put(module.getResource(path).getURI().toString() + ".lastRegistered.default", "0");
+        }
+        if (SettingsBean.getInstance().isProcessingServer()) {
+            jcrStoreService.deployDefinitions(systemId);
         }
     }
 
@@ -1163,6 +1167,12 @@ public class ModulesDataSource extends VFSDataSource implements ExternalDataSour
                     registerCndFiles(getRealFile(data.getPath()));
                 } catch (FileSystemException e) {
                     throw new RepositoryException("Failed to read file " + data.getPath(), e);
+                } catch (Exception e) {
+                    if (e instanceof RepositoryException) {
+                        throw (RepositoryException) e;
+                    } else {
+                        throw new RepositoryException("Couldn't save file " + data.getPath(), e);
+                    }
                 }
             } else if (type.isNodeType(JNT_EDITABLE_FILE)) {
                 hasProperties = saveEditableFile(data, type);
@@ -1542,7 +1552,7 @@ public class ModulesDataSource extends VFSDataSource implements ExternalDataSour
             List<Value> valueConstraints = new ArrayList<Value>();
             if (values != null) {
                 for (String valueConstraint : values) {
-                    valueConstraints.add(getValueFromString(valueConstraint, requiredType));
+                    valueConstraints.add(getValueFromString(valueConstraint, requiredType, true));
                 }
             }
             propertyDefinition.setValueConstraints(valueConstraints.toArray(new Value[valueConstraints.size()]));
@@ -1550,7 +1560,7 @@ public class ModulesDataSource extends VFSDataSource implements ExternalDataSour
             List<Value> defaultValues = new ArrayList<Value>();
             if (values != null) {
                 for (String defaultValue : values) {
-                    defaultValues.add(getValueFromString(defaultValue, requiredType));
+                    defaultValues.add(getValueFromString(defaultValue, requiredType, false));
                 }
             }
             propertyDefinition.setDefaultValues(defaultValues.toArray(new Value[defaultValues.size()]));
@@ -1659,13 +1669,15 @@ public class ModulesDataSource extends VFSDataSource implements ExternalDataSour
         } catch (NoSuchNodeTypeException e) {
             nodeTypeRegistryMap.remove(cndPath);
             throw e;
+        } catch (Exception e) {
+            throw new RepositoryException(e);
         }
     }
 
-    private Value getValueFromString(String value, int requiredType) {
+    private Value getValueFromString(String value, int requiredType, boolean isConstraint) {
         String v = value.replace("\\\\", "\\");
         v = v.replace("\\'", "'");
-        return new ValueImpl(v, requiredType, false);
+        return new ValueImpl(v, requiredType, isConstraint);
     }
 
     private synchronized void saveChildNodeDefinition(ExternalData data) throws RepositoryException {
@@ -2071,7 +2083,13 @@ public class ModulesDataSource extends VFSDataSource implements ExternalDataSour
             try {
                 registerCndFiles(getRealFile(path));
             } catch (FileSystemException e) {
-                throw new RepositoryException("Failed to read file " + path, e);
+                throw new RepositoryException("Failed to write file " + path, e);
+            } catch (Exception e) {
+                if (e instanceof RepositoryException) {
+                    throw (RepositoryException) e;
+                } else {
+                    throw new RepositoryException("Couldn't save file " + path, e);
+                }
             }
 
         } catch (IOException e) {

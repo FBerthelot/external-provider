@@ -71,39 +71,26 @@
  */
 package org.jahia.modules.external.query;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
-import javax.jcr.Node;
-import javax.jcr.NodeIterator;
-import javax.jcr.RepositoryException;
-import javax.jcr.Session;
-import javax.jcr.UnsupportedRepositoryOperationException;
-import javax.jcr.nodetype.NoSuchNodeTypeException;
-import javax.jcr.query.InvalidQueryException;
-import javax.jcr.query.Query;
-import javax.jcr.query.QueryManager;
-import javax.jcr.query.QueryResult;
-import javax.jcr.query.Row;
-import javax.jcr.query.RowIterator;
-import javax.jcr.query.qom.*;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.jackrabbit.commons.iterator.NodeIteratorAdapter;
 import org.apache.jackrabbit.commons.query.sql2.Parser;
 import org.apache.jackrabbit.spi.commons.conversion.NamePathResolver;
 import org.apache.jackrabbit.spi.commons.query.qom.QueryObjectModelFactoryImpl;
 import org.apache.jackrabbit.spi.commons.query.qom.QueryObjectModelTree;
-import org.jahia.modules.external.ExternalContentStoreProvider;
-import org.jahia.modules.external.ExternalDataSource;
-import org.jahia.modules.external.ExternalQuery;
-import org.jahia.modules.external.ExternalSessionImpl;
-import org.jahia.modules.external.ExternalWorkspaceImpl;
+import org.jahia.modules.external.*;
 import org.jahia.services.content.nodetypes.ExtendedNodeType;
 import org.jahia.services.content.nodetypes.NodeTypeRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.jcr.*;
+import javax.jcr.nodetype.NoSuchNodeTypeException;
+import javax.jcr.query.*;
+import javax.jcr.query.qom.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Implementation of the {@link javax.jcr.query.QueryManager} for the {@link org.jahia.modules.external.ExternalData}.
@@ -211,6 +198,17 @@ public class ExternalQueryManager implements QueryManager {
             List<String> allExtendedResults = new ArrayList<>();
             List<String> results = null;
             final ExternalSessionImpl session = workspace.getSession();
+
+            boolean noConstraints = false;
+            try {
+                // Check if query has
+                if (QueryHelper.getSimpleAndConstraints(getConstraint()).size() == 0) {
+                    noConstraints = true;
+                }
+            } catch (UnsupportedRepositoryOperationException e) {
+                // Query has complex constraints, continue
+            }
+
             if (hasExtension) {
                 Session extSession = session.getExtensionSession();
                 QueryManager queryManager = extSession.getWorkspace().getQueryManager();
@@ -219,6 +217,7 @@ public class ExternalQueryManager implements QueryManager {
 
                 Source source = getSource();
                 boolean isMixinOrFacet = false;
+                boolean isCount = false;
                 String selectorType = null;
                 String selectorName = null;
                 if (source instanceof Selector) {
@@ -226,8 +225,13 @@ public class ExternalQueryManager implements QueryManager {
                     selectorName = ((Selector) source).getSelectorName();
                     isMixinOrFacet = NodeTypeRegistry.getInstance().getNodeType(selectorType).isMixin();
                     for (Column c : getColumns()) {
-                        if (StringUtils.startsWith(c.getColumnName(), "rep:facet(")) {
+                        final String columnName = c.getColumnName();
+                        if (StringUtils.startsWith(columnName, "rep:facet(")) {
                             isMixinOrFacet = true;
+                            break;
+                        }
+                        if (StringUtils.startsWith(columnName, "rep:count(")) {
+                            isCount = true;
                             break;
                         }
                     }
@@ -256,22 +260,40 @@ public class ExternalQueryManager implements QueryManager {
                         q.setLimit(getLimit());
                     }
                     q.setOffset(getOffset());
-                    NodeIterator nodes = new QueryResultAdapter(q.execute()).getNodes();
-                    while (nodes.hasNext()) {
-                        Node node = (Node) nodes.next();
-                        allExtendedResults.add(node.getPath().substring(mountPoint.length()));
+
+
+                    final QueryResult result = q.execute();
+                    if (!isCount) {
+                        NodeIterator nodes = new QueryResultAdapter(result).getNodes();
+                        while (nodes.hasNext()) {
+                            Node node = (Node) nodes.next();
+                            allExtendedResults.add(node.getPath().substring(mountPoint.length()));
+                        }
+                        results = allExtendedResults;
+                    } else {
+                        return result;
                     }
-                    results = allExtendedResults;
+
                 } else {
                     // Need to get all results to prepare merge
-                    NodeIterator nodes = new QueryResultAdapter(q.execute()).getNodes();
-                    while (nodes.hasNext()) {
-                        Node node = (Node) nodes.next();
-                        String path = node.getPath().substring(mountPoint.length());
-                        if (!node.isNodeType("jnt:externalProviderExtension") || session.itemExists(path)) {
-                            allExtendedResults.add(path);
+                    final QueryResult queryResult = q.execute();
+                    if (!isCount) {
+                        NodeIterator nodes = new QueryResultAdapter(queryResult).getNodes();
+                        while (nodes.hasNext()) {
+                            Node node = (Node) nodes.next();
+                            String path = node.getPath().substring(mountPoint.length());
+                            // If no constraint was set, only take extended nodes, as the datasource will return them all anyway
+                            if (!node.isNodeType("jnt:externalProviderExtension") || (!noConstraints && session.itemExists(path))) {
+                                allExtendedResults.add(path);
+                                if (getLimit() > -1 && allExtendedResults.size() > getOffset() + getLimit()) {
+                                    break;
+                                }
+                            }
                         }
+                    } else {
+                        return queryResult;
                     }
+
                     if (allExtendedResults.size() == 0) {
                         // No results at all, ignore search in extension
                         results = null;
@@ -295,15 +317,24 @@ public class ExternalQueryManager implements QueryManager {
                 try {
                     ExternalDataSource dataSource = session.getRepository().getDataSource();
                     final long originalLimit = getLimit();
-                    if (originalLimit > -1 && results != null) {
-                        // Remove results found. Extend limit with total size of extended result to skip duplicate results
-                        setLimit(getLimit() - results.size() + allExtendedResults.size());
-                    }
 
                     if (results == null) {
                         // No previous results, no merge to do
                         results = ((ExternalDataSource.Searchable) dataSource).search(this);
+                    } else if (noConstraints) {
+                        // Previous results, but only in extended nodes, no merge required - concat only
+                        if (getOffset() >= allExtendedResults.size()) {
+                            setOffset(getOffset() - allExtendedResults.size());
+                        } else {
+                            setOffset(0);
+                            setLimit(getLimit() - results.size());
+                        }
+                        results.addAll(((ExternalDataSource.Searchable) dataSource).search(this));
                     } else {
+                        if (originalLimit > -1) {
+                            // Remove results found. Extend limit with total size of extended result to skip duplicate results
+                            setLimit(getOffset() + getLimit());
+                        }
                         // Need to merge, move offset to 0
                         int skips = Math.max(0, (int) getOffset() - allExtendedResults.size());
                         setOffset(0);

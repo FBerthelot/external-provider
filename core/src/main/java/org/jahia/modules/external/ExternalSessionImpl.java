@@ -114,6 +114,7 @@ public class ExternalSessionImpl implements Session {
     private Set<Binary> tempBinaries = new HashSet<Binary>();
     private Session extensionSession;
     private List<String> extensionAllowedTypes;
+    private List<String> extensionForbiddenMixins;
     private Map<String,List<String>> overridableProperties;
     private Map<String,List<String>> nonOverridableProperties;
     private Map<String, Object> sessionVariables = new HashMap<String, Object>();
@@ -609,7 +610,8 @@ public class ExternalSessionImpl implements Session {
     }
 
     public boolean hasPendingChanges() throws RepositoryException {
-        return false;
+        return extensionSession != null && extensionSession.hasPendingChanges() ||
+                repository.getDataSource() instanceof ExternalDataSource.Writable && (!deletedData.isEmpty() || !changedData.isEmpty() || !orderedData.isEmpty());
     }
 
     public ExternalValueFactoryImpl getValueFactory()
@@ -864,6 +866,16 @@ public class ExternalSessionImpl implements Session {
             }
         }
         return nonOverridableProperties;
+    }
+
+    public List<String> getExtensionForbiddenMixins() throws RepositoryException {
+        if (extensionForbiddenMixins == null) {
+            extensionForbiddenMixins = getRepository().getStoreProvider().getNonExtendableMixins();
+            if (extensionForbiddenMixins == null) {
+                extensionForbiddenMixins = Collections.emptyList();
+            }
+        }
+        return extensionForbiddenMixins;
     }
 
     public Map<String, Object> getSessionVariables() {
