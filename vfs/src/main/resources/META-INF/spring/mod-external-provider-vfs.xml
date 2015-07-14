@@ -14,6 +14,8 @@
 
     <bean id="vfsProviderFactory" class="org.jahia.modules.external.vfs.VFSProviderFactory"/>
 
+    <bean class="org.jahia.modules.external.vfs.listeners.VFSMountPointListener"/>
+
     <bean
         class="org.jahia.services.content.decorator.validation.JCRNodeValidatorDefinition">
         <property name="validators">
