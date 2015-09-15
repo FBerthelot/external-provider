@@ -146,11 +146,12 @@ public class ExternalValueImpl implements Value {
         throw new ValueFormatException();
     }
 
+
     public Binary getBinary() throws RepositoryException {
         if (value instanceof Binary) {
             return (Binary) value;
         }
-        throw new ValueFormatException();
+        return new ExternalBinaryImpl(new ByteArrayInputStream(getString().getBytes(Charset.forName("UTF-8"))));
     }
 
     public long getLong() throws ValueFormatException, RepositoryException {
