@@ -74,8 +74,10 @@ package org.jahia.modules.external;
 import org.apache.jackrabbit.util.ISO8601;
 
 import javax.jcr.*;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.nio.charset.Charset;
 import java.util.Calendar;
 
 /**
