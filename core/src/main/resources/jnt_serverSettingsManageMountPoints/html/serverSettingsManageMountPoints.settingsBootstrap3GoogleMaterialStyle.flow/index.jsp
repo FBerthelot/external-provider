@@ -152,7 +152,7 @@
                         <c:if test="${mountPoint.showMountAction}">
                             <fmt:message key="serverSettings.mountPointsManagement.action.mount" var="mountLabel"/>
                             <button class="btn btn-default btn-fab btn-fab-xs" type="button"
-                                    onclick="submitEvent('mount', '${mountPoint.realName}')" data-toggle="tooltip"
+                                    onclick="submitEvent('MOUNT', '${mountPoint.realName}')" data-toggle="tooltip"
                                     data-placement="bottom" title="" data-original-title="${mountLabel}">
                                 <i class="material-icons">file_download</i>
                             </button>
@@ -160,7 +160,7 @@
                         <c:if test="${mountPoint.showUnmountAction}">
                             <fmt:message key="serverSettings.mountPointsManagement.action.unmount" var="unmountLabel"/>
                             <button class="btn btn-default btn-fab btn-fab-xs" type="button"
-                                    onclick="submitEvent('unmount', '${mountPoint.realName}')" data-toggle="tooltip"
+                                    onclick="submitEvent('UNMOUNT', '${mountPoint.realName}')" data-toggle="tooltip"
                                     data-placement="bottom" title="" data-original-title="${unmountLabel}">
                                 <i class="material-icons">file_upload</i>
                             </button>
@@ -182,7 +182,7 @@
                         <button class="btn btn-danger btn-fab btn-fab-xs" type="button"
                                 data-placement="bottom" title="" data-toggle="tooltip"
                                 data-original-title="${deleteLabel}"
-                                onclick="submitEventWithConfirm('delete', '${mountPoint.realName}', '${functions:escapeJavaScript(confirmDelete)}')">
+                                onclick="submitEventWithConfirm('DELETE', '${mountPoint.realName}', '${functions:escapeJavaScript(confirmDelete)}')">
                             <i class="material-icons">delete</i>
                         </button>
                     </td>
